@@ -7,4 +7,5 @@ def test_high_risk():
         "contract_type": "Month-to-Month",
         "tickets": [{"type": "complaint", "date": "2026-03-01"}]*6
     }
+    
     assert calculate_risk(data) == "HIGH"
