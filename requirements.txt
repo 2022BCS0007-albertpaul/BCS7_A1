@@ -8,3 +8,4 @@ joblib
 numpy
 matplotlib
 scipy
+mlflow
