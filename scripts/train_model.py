@@ -5,6 +5,9 @@ import os
 import mlflow
 import mlflow.sklearn
 
+mlflow.set_tracking_uri("file:./mlruns")
+mlflow.set_experiment("churn-prediction")
+
 from app.rules import calculate_risk
 from app.feature_pipeline import FeatureExtractor
 
