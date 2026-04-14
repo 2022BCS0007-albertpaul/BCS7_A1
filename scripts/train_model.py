@@ -1,12 +1,10 @@
 import json
 import numpy as np
 import os
+import shutil
 
 import mlflow
 import mlflow.sklearn
-
-mlflow.set_tracking_uri("file:./mlruns")
-mlflow.set_experiment("churn-prediction")
 
 from app.rules import calculate_risk
 from app.feature_pipeline import FeatureExtractor
@@ -25,31 +23,48 @@ from sklearn.metrics import (
 import joblib
 
 # -----------------------------
+# CLEAN MLflow state (IMPORTANT for CI/CD)
+# -----------------------------
+if os.path.exists("mlruns"):
+    shutil.rmtree("mlruns")
+
+mlflow.set_tracking_uri("file:./mlruns")
+mlflow.set_experiment("churn-prediction")
+
+# -----------------------------
 # Ensure directories exist
 # -----------------------------
 os.makedirs("model", exist_ok=True)
 os.makedirs("data/splits", exist_ok=True)
+os.makedirs("data/processed", exist_ok=True)
 
 # -----------------------------
-# MLflow setup
+# Start MLflow run
 # -----------------------------
-mlflow.set_experiment("churn-prediction")
-
 with mlflow.start_run():
 
     # -----------------------------
-    # 1. Load Data
+    # 1. Load Data (SAFE CHECK)
     # -----------------------------
-    with open("data/processed/processed_data.json") as f:
+    data_path = "data/processed/processed_data.json"
+
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(
+            f"Missing dataset: {data_path}. Run preprocess.py first."
+        )
+
+    with open(data_path) as f:
         data = json.load(f)
 
-    X = data
+    # -----------------------------
+    # 2. Generate Labels
+    # -----------------------------
+    X = []
     y = []
 
-    # -----------------------------
-    # 2. Generate Labels (from rules)
-    # -----------------------------
     for customer in data:
+        X.append(customer)  # keep structured input
+
         label = calculate_risk(customer)
 
         if label == "LOW":
@@ -68,41 +83,35 @@ with mlflow.start_run():
         X, y, test_size=0.2, random_state=42
     )
 
-    # 🔥 Save splits (for DVC)
+    # Save splits (for DVC / tracking)
     np.save("data/splits/y_train.npy", y_train)
     np.save("data/splits/y_test.npy", y_test)
 
     # -----------------------------
-    # 4. Hyperparameters
-    # -----------------------------
-    n_estimators = 150
-    max_depth = None
-
-    # -----------------------------
-    # 5. Pipeline (Feature + Model)
+    # 4. Model Pipeline
     # -----------------------------
     pipeline = Pipeline([
         ("features", FeatureExtractor()),
         ("model", RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
+            n_estimators=150,
+            max_depth=None,
             random_state=42
         ))
     ])
 
     # -----------------------------
-    # 6. Train Model
+    # 5. Train
     # -----------------------------
     pipeline.fit(X_train, y_train)
 
     # -----------------------------
-    # 7. Predictions
+    # 6. Predictions
     # -----------------------------
     y_pred = pipeline.predict(X_test)
     y_prob = pipeline.predict_proba(X_test)
 
     # -----------------------------
-    # 8. Evaluation Metrics
+    # 7. Metrics
     # -----------------------------
     precision = precision_score(y_test, y_pred, average='weighted')
     recall = recall_score(y_test, y_pred, average='weighted')
@@ -119,7 +128,7 @@ with mlflow.start_run():
     print("ROC-AUC:", roc_auc)
 
     # -----------------------------
-    # 9. Performance Monitoring (NEW)
+    # 8. Save logs
     # -----------------------------
     with open("model/performance_log.txt", "a") as f:
         f.write(
@@ -129,40 +138,27 @@ with mlflow.start_run():
         )
 
     # -----------------------------
-    # 10. MLflow Logging
+    # 9. MLflow logging
     # -----------------------------
-
-    # Parameters
-    mlflow.log_param("n_estimators", n_estimators)
-    mlflow.log_param("max_depth", max_depth)
+    mlflow.log_param("n_estimators", 150)
+    mlflow.log_param("max_depth", None)
     mlflow.log_param("dataset_version", "v1")
 
-    # Feature tracking
-    mlflow.log_param("features", [
-        "freq_7d",
-        "freq_30d",
-        "freq_90d",
-        "complaint_count",
-        "avg_gap",
-        "charge_diff"
-    ])
-
-    # Metrics
     mlflow.log_metric("precision", precision)
     mlflow.log_metric("recall", recall)
     mlflow.log_metric("f1_score", f1)
     mlflow.log_metric("roc_auc", roc_auc)
 
     # -----------------------------
-    # 11. Save Model (Pipeline)
+    # 10. Save model
     # -----------------------------
     joblib.dump(pipeline, "model/churn_pipeline.pkl")
 
-    # Register model in MLflow
+    # MLflow model logging
     mlflow.sklearn.log_model(
         pipeline,
         "model",
         registered_model_name="ChurnPredictionModel"
     )
 
-    print("\n✅ Model trained, monitored, and registered successfully!")
+    print("\n✅ Training + MLflow logging completed successfully!")
