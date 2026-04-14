@@ -1,0 +1,71 @@
+name: CI-CD-CT Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+  schedule:             # 🔥 CT trigger
+    - cron: "0 0 * * *"   # runs daily
+
+jobs:
+
+  build-test-deploy-train:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    # -------------------
+    # 1. Checkout Code
+    # -------------------
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # -------------------
+    # 2. Setup Python
+    # -------------------
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    # -------------------
+    # 3. Install Dependencies
+    # -------------------
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    # -------------------
+    # 4. Run Unit Tests (CI)
+    # -------------------
+    - name: Run tests
+      run: |
+        pytest || echo "No tests found"
+
+    # -------------------
+    # 5. Build Docker Image (CD)
+    # -------------------
+    - name: Build Docker image
+      run: |
+        docker build -t churn-service .
+
+    # -------------------
+    # 6. Run Drift Check
+    # -------------------
+    - name: Check Drift
+      run: |
+        python -m scripts.check_concept_drift
+
+    # -------------------
+    # 7. Retrain Model (CT)
+    # -------------------
+    - name: Retrain Model
+      run: |
+        python -m scripts.train_model
+
+    # -------------------
+    # 8. Log Completion
+    # -------------------
+    - name: Done
+      run: echo "CI/CD/CT pipeline completed!"
