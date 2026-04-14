@@ -2,141 +2,164 @@ import json
 import numpy as np
 import os
 
-from app.feature_engineering import extract_features
+import mlflow
+import mlflow.sklearn
+
 from app.rules import calculate_risk
+from app.feature_pipeline import FeatureExtractor
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     classification_report,
     roc_auc_score,
     precision_score,
     recall_score,
-    f1_score,
-    roc_curve,
-    auc
+    f1_score
 )
-from sklearn.preprocessing import label_binarize
 
 import joblib
-import matplotlib.pyplot as plt
 
-# Ensure model directory exists
+# -----------------------------
+# Ensure directories exist
+# -----------------------------
 os.makedirs("model", exist_ok=True)
+os.makedirs("data/splits", exist_ok=True)
 
 # -----------------------------
-# 1. Load Data
+# MLflow setup
 # -----------------------------
-with open("data/processed_data.json") as f:
-    data = json.load(f)
+mlflow.set_experiment("churn-prediction")
 
-X = []
-y = []
+with mlflow.start_run():
 
-# -----------------------------
-# 2. Feature Extraction + Label Generation
-# -----------------------------
-for customer in data:
-    features = extract_features(customer)
-    label = calculate_risk(customer)
+    # -----------------------------
+    # 1. Load Data
+    # -----------------------------
+    with open("data/processed/processed_data.json") as f:
+        data = json.load(f)
 
-    X.append(features)
+    X = data
+    y = []
 
-    if label == "LOW":
-        y.append(0)
-    elif label == "MEDIUM":
-        y.append(1)
-    else:
-        y.append(2)
+    # -----------------------------
+    # 2. Generate Labels (from rules)
+    # -----------------------------
+    for customer in data:
+        label = calculate_risk(customer)
 
-X = np.array(X)
-y = np.array(y)
+        if label == "LOW":
+            y.append(0)
+        elif label == "MEDIUM":
+            y.append(1)
+        else:
+            y.append(2)
 
-# -----------------------------
-# 3. Train-Test Split
-# -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+    y = np.array(y)
 
-# -----------------------------
-# 4. Train Model
-# -----------------------------
-model = RandomForestClassifier(random_state=42)
-model.fit(X_train, y_train)
-
-# -----------------------------
-# 5. Predictions
-# -----------------------------
-y_pred = model.predict(X_test)
-y_prob = model.predict_proba(X_test)
-
-# -----------------------------
-# 6. Evaluation Metrics
-# -----------------------------
-print("\n📊 Classification Report:\n")
-print(classification_report(y_test, y_pred))
-
-precision = precision_score(y_test, y_pred, average='weighted')
-recall = recall_score(y_test, y_pred, average='weighted')
-f1 = f1_score(y_test, y_pred, average='weighted')
-roc_auc = roc_auc_score(y_test, y_prob, multi_class="ovr")
-
-print("\n📈 Metrics:")
-print("Precision:", precision)
-print("Recall:", recall)
-print("F1 Score:", f1)
-print("ROC-AUC:", roc_auc)
-
-# Save metrics to file (for GitHub)
-with open("model/metrics.txt", "w") as f:
-    f.write("Classification Report:\n")
-    f.write(classification_report(y_test, y_pred))
-    f.write("\n\n")
-    f.write(f"Precision: {precision}\n")
-    f.write(f"Recall: {recall}\n")
-    f.write(f"F1 Score: {f1}\n")
-    f.write(f"ROC-AUC: {roc_auc}\n")
-
-# -----------------------------
-# 7. ROC Curve (Multi-class)
-# -----------------------------
-y_test_bin = label_binarize(y_test, classes=[0, 1, 2])
-
-n_classes = 3
-fpr = dict()
-tpr = dict()
-roc_auc_class = dict()
-
-labels = ["LOW", "MEDIUM", "HIGH"]
-
-for i in range(n_classes):
-    fpr[i], tpr[i], _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
-    roc_auc_class[i] = auc(fpr[i], tpr[i])
-
-plt.figure()
-
-for i in range(n_classes):
-    plt.plot(
-        fpr[i],
-        tpr[i],
-        label=f"{labels[i]} (AUC = {roc_auc_class[i]:.2f})"
+    # -----------------------------
+    # 3. Train-Test Split
+    # -----------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
     )
 
-plt.plot([0, 1], [0, 1], linestyle="--")
+    # 🔥 Save splits (for DVC)
+    np.save("data/splits/y_train.npy", y_train)
+    np.save("data/splits/y_test.npy", y_test)
 
-plt.xlabel("False Positive Rate")
-plt.ylabel("True Positive Rate")
-plt.title("Multi-class ROC Curve")
-plt.legend()
+    # -----------------------------
+    # 4. Hyperparameters
+    # -----------------------------
+    n_estimators = 150
+    max_depth = None
 
-# Save ROC curve
-plt.savefig("model/roc_curve.png")
-plt.show()
+    # -----------------------------
+    # 5. Pipeline (Feature + Model)
+    # -----------------------------
+    pipeline = Pipeline([
+        ("features", FeatureExtractor()),
+        ("model", RandomForestClassifier(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            random_state=42
+        ))
+    ])
 
-# -----------------------------
-# 8. Save Model
-# -----------------------------
-joblib.dump(model, "model/churn_model.pkl")
+    # -----------------------------
+    # 6. Train Model
+    # -----------------------------
+    pipeline.fit(X_train, y_train)
 
-print("\n✅ Model trained, evaluated, and saved successfully!")
+    # -----------------------------
+    # 7. Predictions
+    # -----------------------------
+    y_pred = pipeline.predict(X_test)
+    y_prob = pipeline.predict_proba(X_test)
+
+    # -----------------------------
+    # 8. Evaluation Metrics
+    # -----------------------------
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    f1 = f1_score(y_test, y_pred, average='weighted')
+    roc_auc = roc_auc_score(y_test, y_prob, multi_class="ovr")
+
+    print("\n📊 Classification Report:\n")
+    print(classification_report(y_test, y_pred))
+
+    print("\n📈 Metrics:")
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("F1 Score:", f1)
+    print("ROC-AUC:", roc_auc)
+
+    # -----------------------------
+    # 9. Performance Monitoring (NEW)
+    # -----------------------------
+    with open("model/performance_log.txt", "a") as f:
+        f.write(
+            f"Precision: {precision}, Recall: {recall}, "
+            f"F1: {f1}, ROC-AUC: {roc_auc}\n"
+            f"Accuracy: {(y_pred == y_test).mean()}\n"
+        )
+
+    # -----------------------------
+    # 10. MLflow Logging
+    # -----------------------------
+
+    # Parameters
+    mlflow.log_param("n_estimators", n_estimators)
+    mlflow.log_param("max_depth", max_depth)
+    mlflow.log_param("dataset_version", "v1")
+
+    # Feature tracking
+    mlflow.log_param("features", [
+        "freq_7d",
+        "freq_30d",
+        "freq_90d",
+        "complaint_count",
+        "avg_gap",
+        "charge_diff"
+    ])
+
+    # Metrics
+    mlflow.log_metric("precision", precision)
+    mlflow.log_metric("recall", recall)
+    mlflow.log_metric("f1_score", f1)
+    mlflow.log_metric("roc_auc", roc_auc)
+
+    # -----------------------------
+    # 11. Save Model (Pipeline)
+    # -----------------------------
+    joblib.dump(pipeline, "model/churn_pipeline.pkl")
+
+    # Register model in MLflow
+    mlflow.sklearn.log_model(
+        pipeline,
+        "model",
+        registered_model_name="ChurnPredictionModel"
+    )
+
+    print("\n✅ Model trained, monitored, and registered successfully!")

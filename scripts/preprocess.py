@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import json
 
 # Load dataset
-df = pd.read_csv("data/Telco-Customer-Churn.csv")
+df = pd.read_csv("data/raw/Telco-Customer-Churn.csv")
 
 # Select required columns
 df = df[["customerID", "MonthlyCharges", "Contract"]]
@@ -36,7 +36,7 @@ df["tickets"] = df.apply(lambda _: generate_tickets(), axis=1)
 data = df.to_dict(orient="records")
 
 # Save processed data
-with open("data/processed_data.json", "w") as f:
+with open("data/processed/processed_data.json", "w") as f:
     json.dump(data, f, indent=2)
 
 print("✅ Processed data saved!")

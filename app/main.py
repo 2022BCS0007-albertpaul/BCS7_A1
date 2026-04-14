@@ -1,55 +1,52 @@
 from fastapi import FastAPI, HTTPException
-from app.feature_engineering import extract_features
 from app.ml_model import predict
-from app.data_loader import load_data
+from app.models import Customer
+
+import time
+import psutil
+import os
 
 app = FastAPI(title="Churn Prediction ML Service")
 
-# Load sample customers (optional endpoint use)
-try:
-    customers_data = load_data()
-except Exception:
-    customers_data = []
-
 @app.get("/")
 def home():
-    return {"message": "ML-based Churn Prediction Service Running"}
+    return {"message": "ML Pipeline Churn Prediction Service Running"}
 
-# 🔥 MAIN ENDPOINT (ML-based)
+
+# 🔥 PIPELINE-BASED ENDPOINT WITH LATENCY
 @app.post("/predict-risk")
-def predict_risk(customer: dict):
+def predict_risk(customer: Customer):
     try:
-        # Step 1: Feature extraction
-        features = extract_features(customer)
+        start_time = time.time()   # ⏱️ Start timer
 
-        # Step 2: ML prediction
-        risk = predict(features)
+        risk = predict(customer.dict())
+
+        latency = time.time() - start_time   # ⏱️ End timer
 
         return {
             "risk": risk,
-            "features_used": {
-                "freq_7d": features[0],
-                "freq_30d": features[1],
-                "freq_90d": features[2],
-                "complaint_count": features[3],
-                "avg_gap": features[4],
-                "charge_diff": features[5]
-            }
+            "latency_seconds": round(latency, 6)
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# 📊 Optional: Get sample customers
-@app.get("/customers")
-def get_customers():
-    if not customers_data:
-        return {"message": "No data available. Run preprocessing first."}
-    return customers_data[:10]
-
-
-# ❤️ Health check (useful for Kubernetes)
+# ❤️ Health check
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# 🔥 SYSTEM METRICS (MEMORY + CPU)
+@app.get("/metrics")
+def system_metrics():
+    process = psutil.Process(os.getpid())
+
+    memory_mb = process.memory_info().rss / 1024 / 1024
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+
+    return {
+        "memory_usage_mb": round(memory_mb, 2),
+        "cpu_usage_percent": cpu_percent
+    }

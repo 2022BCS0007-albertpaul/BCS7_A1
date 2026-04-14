@@ -1,9 +1,10 @@
 import joblib
 
-model = joblib.load("model/churn_model.pkl")
+# Load full pipeline (features + model)
+pipeline = joblib.load("model/churn_pipeline.pkl")
 
-def predict(features):
-    pred = model.predict([features])[0]
+def predict(customer):
+    pred = pipeline.predict([customer])[0]
 
     if pred == 0:
         return "LOW"
