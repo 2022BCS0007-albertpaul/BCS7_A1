@@ -15,10 +15,10 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'   # ✅ FIXED
+          python-version: '3.12'   # ✅ FIXED
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Run Retraining Pipeline
-        run: bash scripts/retrain_pipeline.sh
+        run: bash scripts/retrain_pipeline.bat
