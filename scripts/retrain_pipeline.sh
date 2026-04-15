@@ -1,12 +1,13 @@
-@echo off
+#!/bin/bash
 
-echo 🔍 Checking data drift...
-python scripts\check_drift.py
+echo "🔍 Checking data drift..."
 
-IF %ERRORLEVEL% NEQ 0 (
-    echo 🚀 Drift detected. Retraining model...
+python -m scripts.check_drift
+
+if [ $? -ne 0 ]; then
+    echo "🚀 Drift detected. Retraining model..."
     python -m scripts.train_model
-    echo ✅ Model retrained and registered!
-) ELSE (
-    echo ✅ No retraining needed
-)
+    echo "✅ Model retrained and registered!"
+else
+    echo "✅ No retraining needed"
+fi
